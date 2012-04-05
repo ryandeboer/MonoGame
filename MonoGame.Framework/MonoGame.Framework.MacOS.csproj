@@ -404,6 +404,8 @@
     <Compile Include="Graphics\SpriteFont.cs" />
     <Compile Include="Graphics\Effect\GLSLEffectObject.cs" />
     <Compile Include="Graphics\Effect\GLSLShader.cs" />
+    <Compile Include="Content\ContentSerializerTypeVersionAttribute.cs" />
+    <Compile Include="Content\ReflectiveReaderMemberHelper.cs" />    
   </ItemGroup>
   <ItemGroup>
     <Folder Include="MacOS\" />

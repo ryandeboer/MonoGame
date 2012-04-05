@@ -90,6 +90,8 @@
     <Compile Include="Content\ContentReaders\Vector4Reader.cs" />
     <Compile Include="Content\ContentReaders\VertexDeclarationReader.cs" />
     <Compile Include="Content\ContentReaders\VideoReader.cs" />
+    <Compile Include="Content\ContentSerializerTypeVersionAttribute.cs" />
+    <Compile Include="Content\ReflectiveReaderMemberHelper.cs" />
     <Compile Include="Content\ResourceContentManager.cs" />
     <Compile Include="Game.cs" />
     <Compile Include="GamePlatform.cs" />
