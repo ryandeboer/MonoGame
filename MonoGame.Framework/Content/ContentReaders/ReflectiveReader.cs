@@ -38,7 +38,6 @@ purpose and non-infringement.
 */
 #endregion License
 
-// Original source from SilverSprite project at http://silversprite.codeplex.com
 
 using System;
 using System.Reflection;
@@ -47,166 +46,106 @@ using Microsoft.Xna.Framework.Content;
 
 namespace Microsoft.Xna.Framework.Content
 {
+    using Microsoft.Xna.Framework;
+    using System;
+    using System.Collections.Generic;
+    using System.Globalization;
+    using System.Reflection;
+
     internal class ReflectiveReader<T> : ContentTypeReader
     {
-        ConstructorInfo constructor;
-        PropertyInfo[] properties;
-        FieldInfo[] fields;
-        ContentTypeReaderManager manager;
-		
-		Type targetType;
-		Type baseType;
-		ContentTypeReader baseTypeReader;
+        private ContentTypeReader baseReader;
+        private ConstructorInfo instanceConstructor;
+        private List<ReflectiveReaderMemberHelper> memberHelpers;
+        private int typeVersion;
 
-        internal ReflectiveReader() : base(typeof(T))
+        public ReflectiveReader()
+            : base(typeof(T))
         {
-			targetType = typeof(T);
+            this.memberHelpers = new List<ReflectiveReaderMemberHelper>();
+            this.instanceConstructor = typeof(T).GetConstructor(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, new Type[0], null);
+            object[] customAttributes = typeof(T).GetCustomAttributes(typeof(ContentSerializerTypeVersionAttribute), false);
+            if (customAttributes.Length == 1)
+            {
+                this.typeVersion = ((ContentSerializerTypeVersionAttribute)customAttributes[0]).TypeVersion;
+            }
         }
 
         protected internal override void Initialize(ContentTypeReaderManager manager)
         {
-            base.Initialize(manager);
-            this.manager = manager;
-			
-			if(targetType.BaseType != null && targetType.BaseType != typeof(object))
-			{
-				baseType = targetType.BaseType;
-				baseTypeReader = manager.GetTypeReader(baseType);
-			}
-			
-            BindingFlags attrs = BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
-			constructor = targetType.GetConstructor(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, new Type[0], null);
-            properties = targetType.GetProperties(attrs);
-            fields = targetType.GetFields(attrs);
+            Type baseType = base.TargetType.BaseType;
+            if (((baseType != null) && (baseType != typeof(object))) && (baseType != typeof(ValueType)))
+            {
+                this.baseReader = manager.GetTypeReader(baseType);
+            }
+            BindingFlags bindingAttr = BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+            PropertyInfo[] properties = base.TargetType.GetProperties(bindingAttr);
+            FieldInfo[] fields = base.TargetType.GetFields(bindingAttr);
+            foreach (PropertyInfo info2 in properties)
+            {
+                ReflectiveReaderMemberHelper item = ReflectiveReaderMemberHelper.TryCreate(manager, base.TargetType, info2);
+                if (item != null)
+                {
+                    this.memberHelpers.Add(item);
+                }
+            }
+            foreach (FieldInfo info in fields)
+            {
+                ReflectiveReaderMemberHelper helper = ReflectiveReaderMemberHelper.TryCreate(manager, base.TargetType, info);
+                if (helper != null)
+                {
+                    this.memberHelpers.Add(helper);
+                }
+            }
         }
 
-        object CreateChildObject(PropertyInfo property, FieldInfo field)
-        {
-            object obj = null;
-            Type t;
-            if (property != null)
-            {
-                t = property.PropertyType;
-            }
-            else
-            {
-                t = field.FieldType;
-            }
-            if (t.IsClass && !t.IsAbstract)
-            {
-                ConstructorInfo constructor = t.GetConstructor(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, new Type[0], null);
-                if (constructor != null)
-                {
-                    obj = constructor.Invoke(null);                
-                }
-            }
-            return obj;
-        }
-
-        private void Read( object parent, ContentReader input, MemberInfo member)
-        {
-            PropertyInfo property = member as PropertyInfo;
-            FieldInfo field = member as FieldInfo;
-            if (property != null && property.CanWrite == false)
-                return;
-            Attribute attr = Attribute.GetCustomAttribute(member, typeof(ContentSerializerIgnoreAttribute));
-            if (attr != null) 
-                return;
-            Attribute attr2 = Attribute.GetCustomAttribute(member, typeof(ContentSerializerAttribute));
-            bool isSharedResource = false;
-            if (attr2 != null)
-            {
-                var cs = attr2 as ContentSerializerAttribute;
-                isSharedResource = cs.SharedResource;
-            }
-            else
-            {
-                if (property != null)
-                {
-                    foreach (MethodInfo info in property.GetAccessors(true))
-                    {
-                        if (info.IsPublic == false)
-                            return;
-                    }
-                }
-                else
-                {
-                    if (!field.IsPublic)
-                        return;
-                }
-            }
-            ContentTypeReader reader = null;
-            if (property != null)
-            {
-                reader = manager.GetTypeReader(property.PropertyType);
-            }
-            else
-            {
-                reader = manager.GetTypeReader(field.FieldType);
-            }
-            if (!isSharedResource)
-            {
-                object existingChildObject = CreateChildObject(property, field);
-                object obj2;
-				
-                obj2 = input.ReadObject(reader, existingChildObject);
-				
-                if (property != null)
-                {
-                    property.SetValue(parent, obj2, null);
-                }
-                else
-                {
-                    // Private fields can be serialized if they have ContentSerializerAttribute added to them
-                    if (field.IsPrivate == false || attr2 != null)
-                        field.SetValue(parent, obj2);
-                }
-            }
-            else
-            {
-                Action<object> action = delegate(object value)
-                {
-                    if (property != null)
-                    {
-                        property.SetValue(parent, value, null);
-                    }
-                    else
-                    {
-                        field.SetValue(parent, value);
-                    }
-                };
-                input.ReadSharedResource(action);
-            }
-        }
-        
         protected internal override object Read(ContentReader input, object existingInstance)
         {
-            T obj;
-            if (existingInstance != null)
+            if (input == null)
             {
-                obj = (T)existingInstance;
+                throw new ArgumentNullException("input");
             }
-            else
+            object newInstance = existingInstance;
+			if (newInstance == null)
             {
-                obj = (constructor == null ? (T)Activator.CreateInstance(typeof(T), false) : (T)constructor.Invoke(null));
+                if (this.instanceConstructor == null)
+                {
+                    if (!base.TargetType.IsValueType)
+                    {
+                        throw new InvalidOperationException(string.Format(CultureInfo.CurrentCulture, "No Default Constructor for {0}", base.TargetType.FullName));
+                    }
+					newInstance = Activator.CreateInstance(base.TargetType);
+                }
+                else
+                {
+					newInstance = this.instanceConstructor.Invoke(null);
+                }
             }
-			
-			if(baseTypeReader != null)
-				baseTypeReader.Read(input, obj);
+			if ((this.baseReader != null) && (this.baseReader.Read(input, newInstance) != newInstance))
+            {
+                throw new InvalidOperationException(string.Format(CultureInfo.CurrentCulture, "Reader Constructed New Instance", this.baseReader.GetType().FullName));
+            }
+            foreach (ReflectiveReaderMemberHelper helper in this.memberHelpers)
+            {
+				helper.Read(input, newInstance);
+            }
+			return newInstance;
+        }
 
-            // Box the type.
-            var boxed = (object)obj;
+        public override bool CanDeserializeIntoExistingObject
+        {
+            get
+            {
+                return base.TargetType.IsClass;
+            }
+        }
 
-            foreach (var property in properties)
-                Read(boxed, input, property);
-
-            foreach (var field in fields)
-                Read(boxed, input, field);
-
-            // Unbox it... required for value types.
-            obj = (T)boxed;
-
-            return obj;
+        public override int TypeVersion
+        {
+            get
+            {
+                return this.typeVersion;
+            }
         }
     }
 }

@@ -60,6 +60,11 @@ namespace Microsoft.Xna.Framework.Content
             get { return 0; }   // The default version (unless overridden) is zero
         }
 
+        public virtual bool CanDeserializeIntoExistingObject
+        {
+            get { return false; }
+        }
+
         #endregion Public Properties
 
 
